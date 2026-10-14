@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import smtplib
+from email.message import EmailMessage
 
 from queenbee.domain.model import Alert
 
@@ -28,7 +29,12 @@ class SmtpNotifier:
         self._recipient = recipient
 
     def notify(self, alert: Alert) -> None:
-        # TODO fix: login sans TLS et message brut, comme dans le script hérité
-        smtp = smtplib.SMTP(self._host)
-        smtp.login(self._username, self._password)
-        smtp.sendmail(self._sender, self._recipient, f"{alert.rule}: {alert.message}")
+        message = EmailMessage()  # EmailMessage refuse les retours à la ligne dans les en-têtes
+        message["From"] = self._sender
+        message["To"] = self._recipient
+        message["Subject"] = f"[Queen Bee] {alert.rule} ({alert.severity.value})"
+        message.set_content(alert.message)
+        with smtplib.SMTP(self._host) as smtp:
+            smtp.starttls()
+            smtp.login(self._username, self._password)
+            smtp.send_message(message)
