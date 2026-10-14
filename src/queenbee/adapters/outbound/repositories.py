@@ -1,4 +1,4 @@
-"""Adaptateurs de persistance."""
+"""Adaptateurs de persistance. SQL toujours paramétré : aucune donnée n'entre dans la requête."""
 
 from __future__ import annotations
 
@@ -10,6 +10,9 @@ _CREATE = (
     "CREATE TABLE IF NOT EXISTS incidents ("
     "id INTEGER PRIMARY KEY AUTOINCREMENT, rule TEXT NOT NULL, source_ip TEXT NOT NULL, "
     "severity TEXT NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL)"
+)
+_INSERT = (
+    "INSERT INTO incidents (rule, source_ip, severity, message, status) VALUES (?, ?, ?, ?, ?)"
 )
 _SELECT = "SELECT rule, source_ip, severity, message, status FROM incidents ORDER BY id"
 
@@ -33,11 +36,15 @@ class SqliteIncidentRepository:
 
     def add(self, incident: Incident) -> None:
         alert = incident.alert
-        # TODO fix: requête construite par f-string, reprise telle quelle du script hérité
         self._conn.execute(
-            "INSERT INTO incidents (rule, source_ip, severity, message, status) VALUES ("
-            f"'{alert.rule}', '{alert.source_ip}', '{alert.severity.value}', "
-            f"'{alert.message}', '{incident.status.value}')"
+            _INSERT,
+            (
+                alert.rule,
+                alert.source_ip,
+                alert.severity.value,
+                alert.message,
+                incident.status.value,
+            ),
         )
         self._conn.commit()
 
