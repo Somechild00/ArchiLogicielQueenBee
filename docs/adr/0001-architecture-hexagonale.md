@@ -2,7 +2,7 @@
 
 - **Statut** : accepté
 - **Date** : 15 octobre 2026
-- **Décideurs** : _(noms du groupe)_
+- **Décideurs** : Khady, Amale
 
 ## Contexte
 
