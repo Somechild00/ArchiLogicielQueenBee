@@ -79,13 +79,39 @@ def test_faille7_token_comparison_is_not_constant_time(
     assert calls == []  # `==` s'arrête au premier caractère différent : fuite par le temps
 
 
-def test_faille3_pickle_executes_code_on_load(capsys: pytest.CaptureFixture[str]) -> None:
+def test_faille3_pickle_payload_is_refused_without_running_code(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     class Payload:  # charge utile INOFFENSIVE : un simple print
         def __reduce__(self) -> tuple[object, tuple[str]]:
             return (print, ("PWNED: code exécuté pendant la désérialisation",))
 
-    vuln.receive_agent_message(pickle.dumps(Payload()))
-    assert "PWNED" in capsys.readouterr().out  # la simple lecture a exécuté du code
+    with pytest.raises(ValueError):
+        vuln.receive_agent_message(pickle.dumps(Payload()))
+    assert "PWNED" not in capsys.readouterr().out  # test inversé : rien n'a été exécuté
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"[]",
+        b'{"source_ip": "10.0.0.1"}',
+        b'{"source_ip": "10.0.0.1", "username": "root", "action": "login_failed",'
+        b' "timestamp": "2026-10-16T09:00:00+00:00", "is_admin": "true"}',
+        b"{" + b" " * 5000 + b"}",
+    ],
+)
+def test_faille3_bad_messages_rejected(raw: bytes) -> None:
+    with pytest.raises(ValueError):
+        vuln.receive_agent_message(raw)
+
+
+def test_faille3_valid_json_message_accepted() -> None:
+    raw = (
+        b'{"source_ip": "10.0.0.1", "username": "root", "action": "login_failed",'
+        b' "timestamp": "2026-10-16T09:00:00+00:00"}'
+    )
+    assert vuln.receive_agent_message(raw)["username"] == "root"
 
 
 def test_faille2_redos_is_gone() -> None:
