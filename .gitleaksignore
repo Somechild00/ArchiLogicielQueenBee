@@ -1,0 +1,2 @@
+# Faux positif vérifié : QUEENBEE_DB=queenbee.db est un nom de fichier, pas un secret (docs/release.md).
+b8f4220f98ea94c355f0334285977134a4ce3d62:.env.example:generic-api-key:2
