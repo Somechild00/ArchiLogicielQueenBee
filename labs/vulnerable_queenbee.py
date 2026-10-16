@@ -9,6 +9,10 @@ import os
 import re
 import sqlite3
 
+from queenbee.application.access import WRITE_ROLES, require_role
+from queenbee.application.errors import AccessDeniedError
+from queenbee.domain.model import Principal
+
 # FAILLE-1 corrigée : la clé vient de l'environnement (.env ignoré par Git, coffre en production),
 # jamais du code ; absente ou trop courte, on refuse de démarrer.
 ENV_API_KEY = "QUEENBEE_LAB_API_KEY"
@@ -59,8 +63,19 @@ def find_incidents(ip: str) -> list[tuple[int, str, str]]:
     return conn.execute("SELECT * FROM incident WHERE ip = ?", (ip,)).fetchall()
 
 
-def close_incident(user: str, incident_id: int) -> None:
-    # FAILLE-5 : aucune vérification d'autorisation dans la couche service
+denied = 0  # refus comptés, jamais silencieux
+
+
+def close_incident(principal: Principal, incident_id: int) -> None:
+    # FAILLE-5 corrigée : autoriser D'ABORD (rôle analyst), puis vérifier, puis écrire.
+    global denied
+    try:
+        require_role(principal, WRITE_ROLES)
+    except AccessDeniedError:
+        denied += 1
+        raise
+    if conn.execute("SELECT 1 FROM incident WHERE id = ?", (incident_id,)).fetchone() is None:
+        raise LookupError("incident inconnu")
     conn.execute("UPDATE incident SET status='closed' WHERE id=?", (incident_id,))
 
 

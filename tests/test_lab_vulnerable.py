@@ -11,6 +11,8 @@ import time
 import pytest
 
 from labs import vulnerable_queenbee as vuln
+from queenbee.application.errors import AccessDeniedError
+from queenbee.domain.model import Principal
 
 pytestmark = pytest.mark.lab
 
@@ -52,10 +54,22 @@ def test_faille1_key_comes_from_environment(lab_key: str) -> None:
     assert not vuln.check_token("qb-admin-2026")
 
 
-def test_faille5_anyone_can_close_an_incident() -> None:
+@pytest.mark.parametrize("roles", [frozenset(), frozenset({"viewer"})])
+def test_faille5_without_analyst_role_cannot_close(roles: frozenset[str]) -> None:
     incident_id = _new_incident()
-    vuln.close_incident("visiteur-anonyme", incident_id)  # aucun rôle vérifié
+    before = vuln.denied
+    with pytest.raises(AccessDeniedError):
+        vuln.close_incident(Principal("visiteur-anonyme", roles), incident_id)
+    assert _status(incident_id) == "open"  # test inversé : aucun effet de bord
+    assert vuln.denied == before + 1  # le refus est compté
+
+
+def test_faille5_analyst_can_close() -> None:
+    incident_id = _new_incident()
+    vuln.close_incident(Principal("alice", frozenset({"analyst"})), incident_id)
     assert _status(incident_id) == "closed"
+    with pytest.raises(LookupError):
+        vuln.close_incident(Principal("alice", frozenset({"analyst"})), 999_999)
 
 
 def test_faille6_internal_service_answers_without_authentication() -> None:
