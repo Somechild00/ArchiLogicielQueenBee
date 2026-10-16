@@ -6,28 +6,30 @@ import ipaddress
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import Enum, IntEnum
+from uuid import UUID, uuid4
 
 
 class DomainError(ValueError):
     """Règle métier ou de sécurité violée. Les messages ne reprennent jamais l'entrée brute."""
 
 
-class Severity(Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+class Severity(IntEnum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+    CRITICAL = 4
 
 
 class IncidentStatus(Enum):
     OPEN = "open"
     TRIAGED = "triaged"
+    CONTAINED = "contained"
     CLOSED = "closed"
 
 
 ALLOWED_ACTIONS: frozenset[str] = frozenset({"login_failed", "login_ok", "logout", "port_probe"})
-_USER_RE = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
+_USERNAME_RE = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
 MAX_MESSAGE_LENGTH = 500
 
 
@@ -46,13 +48,13 @@ class SecurityEvent:
     """Fait observé dans un journal. Immuable : un événement ne se corrige pas, il se remplace."""
 
     source_ip: str
-    user: str
+    username: str
     action: str
     timestamp: datetime
 
     def __post_init__(self) -> None:
         _require_ip(self.source_ip)
-        if not isinstance(self.user, str) or _USER_RE.fullmatch(self.user) is None:
+        if not isinstance(self.username, str) or _USERNAME_RE.fullmatch(self.username) is None:
             raise DomainError("nom d'utilisateur invalide (caractères ou longueur)")
         if self.action not in ALLOWED_ACTIONS:
             raise DomainError("action hors liste autorisée")
@@ -77,34 +79,43 @@ class Alert:
         if not isinstance(self.rule, str) or not self.rule:
             raise DomainError("nom de règle vide")
         _require_ip(self.source_ip)
-        if not isinstance(self.severity, Severity):
-            raise DomainError("sévérité invalide")
+        try:
+            Severity(self.severity)
+        except ValueError as exc:
+            raise DomainError("sévérité invalide") from exc
         if not isinstance(self.message, str) or len(self.message) > MAX_MESSAGE_LENGTH:
             raise DomainError("message d'alerte invalide")
 
 
+# Pattern État : la table des transitions autorisées. Tout le reste est interdit.
 _TRANSITIONS: dict[IncidentStatus, frozenset[IncidentStatus]] = {
     IncidentStatus.OPEN: frozenset({IncidentStatus.TRIAGED}),
-    IncidentStatus.TRIAGED: frozenset({IncidentStatus.CLOSED}),
+    IncidentStatus.TRIAGED: frozenset({IncidentStatus.CONTAINED, IncidentStatus.CLOSED}),
+    IncidentStatus.CONTAINED: frozenset({IncidentStatus.CLOSED}),
     IncidentStatus.CLOSED: frozenset(),
 }
 
 
 @dataclass
 class Incident:
-    """Machine à états (State) : on ne ferme pas un incident sans l'avoir qualifié."""
+    """Entité (elle a un id) : on ne ferme pas un incident sans l'avoir qualifié."""
 
     alert: Alert
-    status: IncidentStatus = field(default=IncidentStatus.OPEN, init=False)
+    id: UUID = field(default_factory=uuid4)
+    status: IncidentStatus = IncidentStatus.OPEN
 
     def transition_to(self, new_status: IncidentStatus) -> None:
         if new_status not in _TRANSITIONS[self.status]:
             raise DomainError(f"transition interdite : {self.status.value} -> {new_status.value}")
         self.status = new_status
 
-    @classmethod
-    def restore(cls, alert: Alert, status: IncidentStatus) -> Incident:
-        """Reconstruit un incident déjà persisté (lecture en base)."""
-        incident = cls(alert)
-        incident.status = status
-        return incident
+
+@dataclass(frozen=True, slots=True)
+class Principal:
+    """Qui agit, avec quels rôles (viewer, analyst…)."""
+
+    name: str
+    roles: frozenset[str]
+
+    def has_role(self, role: str) -> bool:
+        return role in self.roles
