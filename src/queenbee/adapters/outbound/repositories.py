@@ -1,59 +1,73 @@
-"""Adaptateurs de persistance. SQL toujours paramétré : aucune donnée n'entre dans la requête."""
+"""Adaptateurs de sortie : dépôt mémoire (tests) et sqlite (prod). SQL toujours paramétré."""
 
 from __future__ import annotations
 
 import sqlite3
+from uuid import UUID
 
 from queenbee.domain.model import Alert, Incident, IncidentStatus, Severity
-
-_CREATE = (
-    "CREATE TABLE IF NOT EXISTS incidents ("
-    "id INTEGER PRIMARY KEY AUTOINCREMENT, rule TEXT NOT NULL, source_ip TEXT NOT NULL, "
-    "severity TEXT NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL)"
-)
-_INSERT = (
-    "INSERT INTO incidents (rule, source_ip, severity, message, status) VALUES (?, ?, ?, ?, ?)"
-)
-_SELECT = "SELECT rule, source_ip, severity, message, status FROM incidents ORDER BY id"
 
 
 class InMemoryIncidentRepository:
     def __init__(self) -> None:
-        self._items: list[Incident] = []
+        self._items: dict[UUID, Incident] = {}
 
-    def add(self, incident: Incident) -> None:
-        self._items.append(incident)
+    def save(self, incident: Incident) -> None:
+        self._items[incident.id] = incident
 
-    def all(self) -> list[Incident]:
-        return list(self._items)
+    def get(self, incident_id: UUID) -> Incident | None:
+        return self._items.get(incident_id)
+
+    def list_open(self) -> list[Incident]:
+        return [i for i in self._items.values() if i.status is not IncidentStatus.CLOSED]
 
 
 class SqliteIncidentRepository:
-    def __init__(self, path: str) -> None:
-        self._conn = sqlite3.connect(path)
-        self._conn.execute(_CREATE)
-        self._conn.commit()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS incidents ("
+            "id TEXT PRIMARY KEY, rule TEXT NOT NULL, source_ip TEXT NOT NULL, "
+            "severity INTEGER NOT NULL, message TEXT NOT NULL, status TEXT NOT NULL)"
+        )
 
-    def add(self, incident: Incident) -> None:
-        alert = incident.alert
+    def save(self, incident: Incident) -> None:
+        a = incident.alert
         self._conn.execute(
-            _INSERT,
+            "INSERT INTO incidents (id, rule, source_ip, severity, message, status) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET status = excluded.status",
             (
-                alert.rule,
-                alert.source_ip,
-                alert.severity.value,
-                alert.message,
+                str(incident.id),
+                a.rule,
+                a.source_ip,
+                int(a.severity),
+                a.message,
                 incident.status.value,
             ),
         )
         self._conn.commit()
 
-    def all(self) -> list[Incident]:
-        rows = self._conn.execute(_SELECT).fetchall()
-        return [
-            Incident.restore(Alert(rule, ip, Severity(sev), msg), IncidentStatus(status))
-            for rule, ip, sev, msg, status in rows
-        ]
+    def get(self, incident_id: UUID) -> Incident | None:
+        row = self._conn.execute(
+            "SELECT id, rule, source_ip, severity, message, status FROM incidents WHERE id = ?",
+            (str(incident_id),),
+        ).fetchone()
+        return self._to_incident(row) if row else None
 
-    def close(self) -> None:
-        self._conn.close()
+    def list_open(self) -> list[Incident]:
+        rows = self._conn.execute(
+            "SELECT id, rule, source_ip, severity, message, status FROM incidents "
+            "WHERE status != ? ORDER BY rowid",
+            (IncidentStatus.CLOSED.value,),
+        ).fetchall()
+        return [self._to_incident(r) for r in rows]
+
+    @staticmethod
+    def _to_incident(row: tuple[str, str, str, int, str, str]) -> Incident:
+        id_, rule, ip, severity, message, status = row
+        return Incident(
+            Alert(rule, ip, Severity(severity), message),
+            id=UUID(id_),
+            status=IncidentStatus(status),
+        )
