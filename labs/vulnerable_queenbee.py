@@ -1,8 +1,9 @@
 # ruff: noqa
-"""VARIANTE VOLONTAIREMENT FRAGILE de Queen Bee — usage LABORATOIRE uniquement (J3-A1).
+"""Variante de LABORATOIRE de Queen Bee (J3-A1) — usage local uniquement.
 
-Sept failles d'architecture à exploiter (en local), corriger, puis vérifier avec bandit/pip-audit.
-Chaque faille porte un numéro FAILLE-n ; la correction de référence est dans src/queenbee.
+Elle contenait sept failles d'architecture (FAILLE-1 à 7), prouvées puis corrigées une par une ;
+chaque correctif est commenté sur place et couvert par tests/test_lab_vulnerable.py
+(voir docs/revue_securite.md et les ADR 0010 à 0016).
 """
 import hashlib
 import hmac
