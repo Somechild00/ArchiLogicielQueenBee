@@ -133,12 +133,29 @@ utilisateurs avec rôles, pare-feu. Les frontières sont reprises dans le C4 de 
 Test par propriétés (Hypothesis) : `tests/test_inbound_malicious.py::test_hypothesis_signed_garbage_fields_are_rejected_or_valid`,
 `tests/test_adapters.py::test_parser_never_crashes_unexpectedly`.
 
-## 7. Limites connues et risques résiduels (honnêteté du modèle)
+## 7. Mise à jour du jour 3 : failles de la variante de laboratoire
+
+Exploitation uniquement sur `labs/vulnerable_queenbee.py`, en local. Détail : `docs/revue_securite.md`.
+
+| ID | Faille | Couche | STRIDE | DICP | Correctif | Preuve puis non-régression |
+| --- | --- | --- | --- | --- | --- | --- |
+| M-J3-01 | Secret en dur partagé | configuration | I | C | ADR 0010 | `tests/test_lab_vulnerable.py::test_faille1_no_secret_in_code_and_refuses_to_start_without_key` |
+| M-J3-02 | Regex à retour arrière exponentiel (ReDoS) | adaptateur | D | D | ADR 0011 | `tests/test_lab_vulnerable.py::test_faille2_redos_is_gone` |
+| M-J3-03 | Désérialisation pickle | adaptateur | T, E | I | ADR 0012 | `tests/test_lab_vulnerable.py::test_faille3_pickle_payload_is_refused_without_running_code` |
+| M-J3-04 | Requête SQL construite par f-string | persistance | T | I | ADR 0013 | `tests/test_lab_vulnerable.py::test_faille4_sql_injection_no_longer_dumps_table` |
+| M-J3-05 | Aucune autorisation dans le service | application | E | C, I | ADR 0014 | `tests/test_lab_vulnerable.py::test_faille5_without_analyst_role_cannot_close` |
+| M-J3-06 | Services qui ne s'authentifient pas | infrastructure | S | I, P | ADR 0015 | `tests/test_lab_vulnerable.py::test_faille6_unauthenticated_calls_refused_and_counted` |
+| M-J3-07 | Comparaison de jeton non constante | sécurité | I | C | ADR 0016 | `tests/test_lab_vulnerable.py::test_faille7_token_comparison_is_constant_time` |
+
+Les flux de l'infrastructure cible (F1 à F13) et leurs menaces sont dans `docs/infra/flux.md`.
+Traçabilité complète : `docs/tracabilite.md`.
+
+## 8. Limites connues et risques résiduels (honnêteté du modèle)
 
 * **Rejeu** d'un message signé valide : pas de nonce ni de fenêtre de temps sur l'horodatage (S/R sur
-  le flux agent). Risque accepté pour l'instant, à traiter au J3.
+  le flux agent). Risque accepté, inscrit dans la dette (`docs/release.md`).
 * **Agent compromis** qui possède la clé : la signature prouve que le message vient d'un détenteur de la
   clé, pas qu'il dit vrai. Clé unique partagée entre agents : une fuite compromet tous les agents.
 * La base SQLite n'est pas chiffrée ni protégée contre un insider qui a accès au fichier (menace T/I
-  sur A2 hors du processus) : à traiter dans l'infrastructure cible (J3).
+  sur A2 hors du processus) : traité dans l'infrastructure cible (zone Z3, ADR 0006), pas encore déployé.
 * Le limiteur de débit est en mémoire : son état est perdu au redémarrage (voir ADR 0001).

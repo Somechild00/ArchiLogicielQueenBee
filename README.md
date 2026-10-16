@@ -55,21 +55,25 @@ $env:PYTHONPATH="src" ; lint-imports
 |---|---|
 | `j1-rendu` | Modèle de menaces STRIDE, refactoring SOLID du script hérité (`domain/`), patterns de création. Les fichiers du projet training (`pyproject.toml`, `Makefile`) n'étaient pas encore versionnés à cette date : ils ont été ajoutés au début du J2. |
 | `j2-rendu` | Patterns défensifs, architecture hexagonale (ports et adaptateurs), ADR 0001, C4 de contexte, parcours, modèle de menaces mis à jour. 107 tests verts, couverture ≥ 90 %, `lint-imports` : 1 contrat respecté. |
+| `j3-rendu` | 7 failles du laboratoire prouvées, corrigées et testées (ADR 0010 à 0016), infrastructure cible (ADR 0002 à 0006), dossier complet. 130 tests verts dont 26 `lab`, bandit, pip-audit et gitleaks propres. |
 
 Les tests fournis par le formateur sont des spécifications et ne sont pas modifiés
-(J1 : `tests/test_domain.py` + `tests/test_creational.py`, J2 : `tests/test_services.py` + `tests/test_adapters.py`,
-J3 : `tests/test_lab_vulnerable.py`). Les autres fichiers de `tests/` sont les tests du groupe.
+(J1 : `tests/test_domain.py` + `tests/test_creational.py`, J2 : `tests/test_services.py` + `tests/test_adapters.py`).
+Seule exception, demandée par la consigne du J3 : les preuves de `tests/test_lab_vulnerable.py` sont **inversées**
+après correction. Les autres fichiers de `tests/` sont les tests du groupe.
 
-## Documentation (`docs/`)
+## Dossier de conception sécurisée (`docs/`) — les 8 pièces
 
-| Pièce | Fichier |
+| Pièce | Fichier(s) |
 |---|---|
-| Modèle de menaces (actifs, DFD, STRIDE, exigences ↔ tests) | `docs/threat_model.md` |
-| Relevé des problèmes du script hérité | `docs/refactoring_notes.md` |
-| Décision d'architecture | `docs/adr/0001-architecture-hexagonale.md` |
-| C4 niveau 1 (contexte) | `docs/c4/context.md` |
-| Parcours « attaque détectée → incident clos » et tranche verticale | `docs/parcours.md` |
-| Diagrammes UML (classes des patterns, séquence d'ingestion) | `docs/uml/` |
+| 1. Modèle de menaces (actifs, DFD, STRIDE, exigences, failles J3) | `docs/threat_model.md`, `docs/revue_securite.md` |
+| 2. Code hexagonal testé | `src/queenbee/`, `tests/`, `docs/refactoring_notes.md` |
+| 3. Traçabilité exigence ↔ test | `docs/tracabilite.md` |
+| 4. ADR | `docs/adr/` (0001 architecture, 0002 à 0006 infrastructure, 0010 à 0016 correctifs) |
+| 5. Infrastructure (zones, flux, secrets, journaux, sauvegarde) | `docs/infra/` |
+| 6. Diagrammes (C4 niveaux 1 et 2, UML classes, séquence, composants) | `docs/c4/`, `docs/uml/`, `docs/parcours.md` |
+| 7. Recette (Go / No-Go) | `docs/recette.md` |
+| 8. Trace de release (écarts, dette) | `docs/release.md` |
 
 ## Noms anglais dans le code, noms français sur les slides
 
