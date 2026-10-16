@@ -1,46 +1,45 @@
-"""Lecture des journaux : entrée NON FIABLE. Regex ancrée, bornée, fichier fermé, taille limitée."""
+"""Adaptateur : ligne de journal sshd -> SecurityEvent. Entrée NON FIABLE.
+
+Borne la taille AVANT la regex, regex ancrée (fullmatch) sans quantificateur imbriqué,
+classes bornées au lieu de .*, puis le domaine revalide. Fichier toujours refermé.
+"""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 
 from queenbee.domain.model import DomainError, SecurityEvent
 
-MAX_LINE_LENGTH = 1024
+MAX_LINE_LENGTH = 512
 MAX_LINES = 1_000_000
 
-_FAILED_PASSWORD = re.compile(
-    r"(?:[A-Za-z]{3} +\d{1,2} \d{2}:\d{2}:\d{2} \S{1,64} sshd\[\d{1,7}\]: )?"
-    r"Failed password for (?:invalid user )?(?P<user>[A-Za-z0-9_.\-]{1,64}) "
-    r"from (?P<ip>[0-9A-Fa-f:.]{2,45})(?: port \d{1,5})?(?: ssh2)?"
+_SSHD = re.compile(
+    r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2})"
+    r" sshd: (?P<result>Failed|Accepted) password for "
+    r"(?P<user>[A-Za-z0-9_.\-]{1,64}) from (?P<ip>[0-9a-fA-F:.]{2,45})"
 )
 
 
-def _utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-def parse_line(line: str, now: datetime) -> SecurityEvent | None:
-    """Renvoie un événement valide ou None : une ligne hostile est ignorée, jamais exécutée."""
-    if len(line) > MAX_LINE_LENGTH:
-        return None
-    match = _FAILED_PASSWORD.fullmatch(line.rstrip("\r\n"))
+def parse_sshd_line(line: str) -> SecurityEvent:
+    """Renvoie un événement valide, ou lève DomainError. Jamais d'autre exception."""
+    if not isinstance(line, str) or len(line) > MAX_LINE_LENGTH:
+        raise DomainError("ligne trop longue")
+    match = _SSHD.fullmatch(line.strip())
     if match is None:
-        return None
+        raise DomainError("format non reconnu")
     try:
-        return SecurityEvent(match["ip"], match["user"], "login_failed", now)
-    except DomainError:
-        return None
+        timestamp = datetime.fromisoformat(match["ts"])
+    except ValueError as exc:
+        raise DomainError("horodatage invalide") from exc
+    action = "login_failed" if match["result"] == "Failed" else "login_ok"
+    return SecurityEvent(match["ip"], match["user"], action, timestamp)  # le domaine revalide
 
 
-def read_events(
-    path: Path, clock: Callable[[], datetime] = _utc_now, max_lines: int = MAX_LINES
-) -> Iterator[SecurityEvent]:
-    """Lit un journal ligne à ligne (mémoire bornée) ; le fichier est toujours refermé."""
-    now = clock()
+def read_lines(path: Path, max_lines: int = MAX_LINES) -> Iterator[str]:
+    """Lit un journal ligne à ligne (mémoire bornée) ; les lignes géantes sont jetées."""
     with path.open(encoding="utf-8", errors="replace") as handle:
         for _ in range(max_lines):
             chunk = handle.readline(MAX_LINE_LENGTH + 1)
@@ -50,6 +49,4 @@ def read_events(
                 while chunk and not chunk.endswith("\n"):  # jette la fin de la ligne trop longue
                     chunk = handle.readline(MAX_LINE_LENGTH + 1)
                 continue
-            event = parse_line(chunk, now)
-            if event is not None:
-                yield event
+            yield chunk.rstrip("\r\n")
