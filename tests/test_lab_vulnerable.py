@@ -88,13 +88,18 @@ def test_faille3_pickle_executes_code_on_load(capsys: pytest.CaptureFixture[str]
     assert "PWNED" in capsys.readouterr().out  # la simple lecture a exécuté du code
 
 
-def test_faille2_redos_is_exponential() -> None:
-    def cost(n: int) -> float:
-        t = time.perf_counter()
-        vuln.is_valid_username("a" * n + "!")
-        return time.perf_counter() - t
+def test_faille2_redos_is_gone() -> None:
+    # Test inversé : la charge qui explosait (temps x16 pour +4 caractères) est rejetée
+    # instantanément, même 1 000 fois plus longue.
+    start = time.perf_counter()
+    for n in (18, 22, 30, 50_000):
+        assert not vuln.is_valid_username("a" * n + "!")
+    assert time.perf_counter() - start < 0.1
 
-    assert cost(22) > 4 * cost(18)  # +4 caractères => temps x16 en théorie
+
+@pytest.mark.parametrize("name", ["alice", "bob.smith", "svc_backup-01"])
+def test_faille2_legit_usernames_still_accepted(name: str) -> None:
+    assert vuln.is_valid_username(name)
 
 
 def test_faille4_sql_injection_dumps_table() -> None:
