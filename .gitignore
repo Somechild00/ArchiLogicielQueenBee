@@ -1,15 +1,11 @@
-# Secrets : jamais dans Git
-.env
-
-# Environnement virtuel
 .venv/
-
-# Python
 __pycache__/
-*.py[cod]
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Bases de données locales
+.env
 *.db
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.import_linter_cache/
+*.egg-info/
