@@ -4,11 +4,22 @@
 Sept failles d'architecture à exploiter (en local), corriger, puis vérifier avec bandit/pip-audit.
 Chaque faille porte un numéro FAILLE-n ; la correction de référence est dans src/queenbee.
 """
+import os
 import pickle
 import re
 import sqlite3
 
-API_KEY = "qb-admin-2026"                           # FAILLE-1 : secret en dur et partagé par tous les services
+# FAILLE-1 corrigée : la clé vient de l'environnement (.env ignoré par Git, coffre en production),
+# jamais du code ; absente ou trop courte, on refuse de démarrer.
+ENV_API_KEY = "QUEENBEE_LAB_API_KEY"
+MIN_KEY_LENGTH = 32
+
+
+def _api_key() -> str:
+    key = os.environ.get(ENV_API_KEY, "")
+    if len(key) < MIN_KEY_LENGTH:
+        raise RuntimeError(f"{ENV_API_KEY} absente ou trop courte : refus de démarrer")
+    return key
 
 USER_RE = re.compile(r"^([a-zA-Z0-9]+\s?)*$")       # FAILLE-2 : quantificateurs imbriqués -> ReDoS
 
@@ -40,4 +51,4 @@ def call_enrichment_service(ip: str) -> dict:
 
 
 def check_token(token: str) -> bool:
-    return token == API_KEY                           # FAILLE-7 : comparaison non constante (timing)
+    return token == _api_key()                        # FAILLE-7 : comparaison non constante (timing)

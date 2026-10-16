@@ -14,6 +14,14 @@ from labs import vulnerable_queenbee as vuln
 
 pytestmark = pytest.mark.lab
 
+LAB_KEY = "k" * 40  # valeur de test, jamais une vraie clé
+
+
+@pytest.fixture
+def lab_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    monkeypatch.setenv(vuln.ENV_API_KEY, LAB_KEY)
+    return LAB_KEY
+
 
 def _new_incident() -> int:
     cursor = vuln.conn.execute("INSERT INTO incident (ip, status) VALUES ('10.0.0.9', 'open')")
@@ -26,10 +34,22 @@ def _status(incident_id: int) -> str:
     return str(row[0])
 
 
-def test_faille1_hardcoded_shared_secret_opens_the_door() -> None:
-    # Il suffit de lire le dépôt pour connaître la clé, et elle ouvre tous les services.
-    assert '"qb-admin-2026"' in inspect.getsource(vuln)
-    assert vuln.check_token("qb-admin-2026")
+def test_faille1_no_secret_in_code_and_refuses_to_start_without_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Test inversé : l'ancienne clé n'est plus dans le code et n'ouvre plus rien.
+    assert "qb-admin-2026" not in inspect.getsource(vuln)
+    monkeypatch.delenv(vuln.ENV_API_KEY, raising=False)
+    with pytest.raises(RuntimeError, match="refus de démarrer"):
+        vuln.check_token("qb-admin-2026")
+    monkeypatch.setenv(vuln.ENV_API_KEY, "trop-courte")
+    with pytest.raises(RuntimeError, match="refus de démarrer"):
+        vuln.check_token("trop-courte")
+
+
+def test_faille1_key_comes_from_environment(lab_key: str) -> None:
+    assert vuln.check_token(lab_key)
+    assert not vuln.check_token("qb-admin-2026")
 
 
 def test_faille5_anyone_can_close_an_incident() -> None:
@@ -44,7 +64,9 @@ def test_faille6_internal_service_answers_without_authentication() -> None:
     assert vuln.call_enrichment_service("10.0.0.1")["reputation"]
 
 
-def test_faille7_token_comparison_is_not_constant_time(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_faille7_token_comparison_is_not_constant_time(
+    monkeypatch: pytest.MonkeyPatch, lab_key: str
+) -> None:
     calls: list[tuple[object, object]] = []
     real = hmac.compare_digest
 
@@ -53,7 +75,7 @@ def test_faille7_token_comparison_is_not_constant_time(monkeypatch: pytest.Monke
         return real(a, b)
 
     monkeypatch.setattr(hmac, "compare_digest", spy)
-    vuln.check_token("qb-admin-2026")
+    vuln.check_token(lab_key)
     assert calls == []  # `==` s'arrête au premier caractère différent : fuite par le temps
 
 
