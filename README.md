@@ -17,12 +17,23 @@ labs/            # variante volontairement vulnérable (LABO uniquement — J3)
 tests/           # pytest + hypothesis, tests d'abus inclus
 ```
 
-## Démarrer (Python ≥ 3.12, recommandé 3.13/3.14)
+## Démarrer (Python ≥ 3.12, recommandé 3.13)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
+cp .env.example .env   # puis y coller une clé : python -c "import secrets; print(secrets.token_hex(32))"
 make check          # = lint + types + tests + sécurité + architecture
+```
+
+Sous Windows (PowerShell, sans `make`) :
+
+```powershell
+python -m venv .venv ; .venv\Scripts\Activate.ps1 ; pip install -e ".[dev]"
+ruff check . ; ruff format --check . ; mypy
+python -m pytest --cov=src/queenbee --cov-fail-under=90
+bandit -q -r src -c pyproject.toml ; pip-audit
+$env:PYTHONPATH="src" ; lint-imports
 ```
 
 ## Portes qualité (toutes doivent être vertes avant un rendu)
@@ -38,13 +49,27 @@ make check          # = lint + types + tests + sécurité + architecture
 
 > `legacy/` et `labs/` contiennent du code **volontairement dangereux**. Ne jamais les déployer.
 
-## Kit formateur / Projet training
+## Rendus
 
-- **Kit formateur** : ce dépôt complet (`src/` = correction de référence, 40 tests verts).
-- **Projet training** (remis aux étudiants) : même dépôt sans `src/queenbee/`, avec des gabarits vides
-  dans `docs/` ; les tests servent de spécifications exécutables
-  (J1 : `tests/test_domain.py` + `tests/test_creational.py`, J2 : `tests/test_services.py` + `tests/test_adapters.py`,
-  J3 : `tests/test_lab_vulnerable.py`).
+| Étiquette | Contenu |
+|---|---|
+| `j1-rendu` | Modèle de menaces STRIDE, refactoring SOLID du script hérité (`domain/`), patterns de création. Les fichiers du projet training (`pyproject.toml`, `Makefile`) n'étaient pas encore versionnés à cette date : ils ont été ajoutés au début du J2. |
+| `j2-rendu` | Patterns défensifs, architecture hexagonale (ports et adaptateurs), ADR 0001, C4 de contexte, parcours, modèle de menaces mis à jour. 107 tests verts, couverture ≥ 90 %, `lint-imports` : 1 contrat respecté. |
+
+Les tests fournis par le formateur sont des spécifications et ne sont pas modifiés
+(J1 : `tests/test_domain.py` + `tests/test_creational.py`, J2 : `tests/test_services.py` + `tests/test_adapters.py`,
+J3 : `tests/test_lab_vulnerable.py`). Les autres fichiers de `tests/` sont les tests du groupe.
+
+## Documentation (`docs/`)
+
+| Pièce | Fichier |
+|---|---|
+| Modèle de menaces (actifs, DFD, STRIDE, exigences ↔ tests) | `docs/threat_model.md` |
+| Relevé des problèmes du script hérité | `docs/refactoring_notes.md` |
+| Décision d'architecture | `docs/adr/0001-architecture-hexagonale.md` |
+| C4 niveau 1 (contexte) | `docs/c4/context.md` |
+| Parcours « attaque détectée → incident clos » et tranche verticale | `docs/parcours.md` |
+| Diagrammes UML (classes des patterns, séquence d'ingestion) | `docs/uml/` |
 
 ## Noms anglais dans le code, noms français sur les slides
 
@@ -52,9 +77,9 @@ Les slides montrent le code avec des noms français (`EvenementSecurite`, `Regle
 la lecture. Ce dépôt garde les noms **anglais** (`SecurityEvent`, `BruteForceRule`…), comme en entreprise :
 ce sont eux que les tests importent. La **fiche de correspondance français ↔ anglais** donne l'équivalence.
 
-## Démo du parcours (J2)
+## Lancer sur un journal
 
 ```bash
 export QUEENBEE_AGENT_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
-PYTHONPATH=src python demo_parcours.py
+python -c "from queenbee.bootstrap import main; main('auth.log')"
 ```
