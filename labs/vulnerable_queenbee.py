@@ -54,9 +54,9 @@ def is_valid_username(name: str) -> bool:
     return USER_RE.fullmatch(name) is not None
 
 
-def find_incidents(ip: str):
-    # FAILLE-4 : injection SQL (f-string)
-    return conn.execute(f"SELECT * FROM incident WHERE ip = '{ip}'").fetchall()
+def find_incidents(ip: str) -> list[tuple[int, str, str]]:
+    # FAILLE-4 corrigée : requête paramétrée, la donnée n'est jamais interprétée comme du SQL.
+    return conn.execute("SELECT * FROM incident WHERE ip = ?", (ip,)).fetchall()
 
 
 def close_incident(user: str, incident_id: int) -> None:

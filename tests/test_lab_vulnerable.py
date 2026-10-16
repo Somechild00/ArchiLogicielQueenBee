@@ -128,6 +128,9 @@ def test_faille2_legit_usernames_still_accepted(name: str) -> None:
     assert vuln.is_valid_username(name)
 
 
-def test_faille4_sql_injection_dumps_table() -> None:
+def test_faille4_sql_injection_no_longer_dumps_table() -> None:
     vuln.conn.execute("INSERT INTO incident (ip, status) VALUES ('10.0.0.1', 'open')")
-    assert vuln.find_incidents("x' OR '1'='1")  # renvoie TOUTES les lignes
+    assert vuln.find_incidents("x' OR '1'='1") == []  # test inversé : l'injection ne renvoie rien
+    assert vuln.find_incidents("10.0.0.1")  # la recherche légitime marche toujours
+    vuln.find_incidents("x'; DROP TABLE incident;--")
+    assert vuln.find_incidents("10.0.0.1")  # la table existe encore
