@@ -7,6 +7,7 @@ import hmac
 import inspect
 import pickle
 import time
+from collections.abc import Callable
 
 import pytest
 
@@ -72,10 +73,47 @@ def test_faille5_analyst_can_close() -> None:
         vuln.close_incident(Principal("alice", frozenset({"analyst"})), 999_999)
 
 
-def test_faille6_internal_service_answers_without_authentication() -> None:
-    # Le service ne demande aucune preuve d'identité : seul l'argument métier existe.
-    assert list(inspect.signature(vuln.call_enrichment_service).parameters) == ["ip"]
-    assert vuln.call_enrichment_service("10.0.0.1")["reputation"]
+NOW = 1_800_000_000.0  # horloge injectée : aucun time.sleep
+
+
+@pytest.fixture
+def service_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(vuln.ENV_SERVICE_KEY, "s" * 40)
+
+
+def test_faille6_service_requires_a_token() -> None:
+    assert "token" in inspect.signature(vuln.call_enrichment_service).parameters
+
+
+@pytest.mark.usefixtures("service_key")
+def test_faille6_valid_token_is_served() -> None:
+    token = vuln.issue_service_token("queenbee-app", NOW)
+    assert vuln.call_enrichment_service("10.0.0.1", token, NOW)["reputation"]
+
+
+@pytest.mark.usefixtures("service_key")
+@pytest.mark.parametrize(
+    "make_token",
+    [
+        lambda: "",  # aucun jeton
+        lambda: "queenbee-app|9999999999|" + "0" * 64,  # signature forgée
+        lambda: vuln.issue_service_token("queenbee-app", NOW - 3600),  # jeton expiré
+        lambda: vuln.issue_service_token("poste-inconnu", NOW),  # appelant non autorisé
+        lambda: vuln.issue_service_token("queenbee-app", NOW).replace("app|", "app|9"),  # modifié
+    ],
+)
+def test_faille6_unauthenticated_calls_refused_and_counted(make_token: Callable[[], str]) -> None:
+    token = make_token()
+    before = vuln.unauthenticated
+    with pytest.raises(PermissionError):
+        vuln.call_enrichment_service("10.0.0.1", token, NOW)
+    assert vuln.unauthenticated == before + 1
+
+
+def test_faille6_refuses_to_start_without_service_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(vuln.ENV_SERVICE_KEY, raising=False)
+    with pytest.raises(RuntimeError, match="refus de démarrer"):
+        vuln.issue_service_token("queenbee-app", NOW)
 
 
 def test_faille7_token_comparison_is_not_constant_time(

@@ -4,6 +4,9 @@
 Sept failles d'architecture à exploiter (en local), corriger, puis vérifier avec bandit/pip-audit.
 Chaque faille porte un numéro FAILLE-n ; la correction de référence est dans src/queenbee.
 """
+import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import re
@@ -79,8 +82,49 @@ def close_incident(principal: Principal, incident_id: int) -> None:
     conn.execute("UPDATE incident SET status='closed' WHERE id=?", (incident_id,))
 
 
-def call_enrichment_service(ip: str) -> dict:
-    # FAILLE-6 : appel inter-services sans authentification mutuelle (ni mTLS, ni jeton)
+# FAILLE-6 corrigée : chaque appel inter-services porte un jeton signé (HMAC) à durée courte,
+# avec une clé PROPRE au service (pas la clé d'administration), et l'appelant doit être connu.
+ENV_SERVICE_KEY = "QUEENBEE_LAB_SERVICE_KEY"
+SERVICE_TOKEN_TTL_S = 300
+ALLOWED_CALLERS = frozenset({"queenbee-app"})
+unauthenticated = 0  # appels refusés, comptés
+
+
+def _service_key() -> bytes:
+    key = os.environ.get(ENV_SERVICE_KEY, "")
+    if len(key) < MIN_KEY_LENGTH:
+        raise RuntimeError(f"{ENV_SERVICE_KEY} absente ou trop courte : refus de démarrer")
+    return key.encode()
+
+
+def _sign(payload: str) -> str:
+    return hmac.new(_service_key(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def issue_service_token(caller: str, now: float) -> str:
+    payload = f"{caller}|{int(now) + SERVICE_TOKEN_TTL_S}"
+    return f"{payload}|{_sign(payload)}"
+
+
+def _authenticate(token: str, now: float) -> str:
+    caller, _, rest = token.partition("|")
+    expiry, _, signature = rest.partition("|")
+    expected = _sign(f"{caller}|{expiry}")
+    if not hmac.compare_digest(expected.encode(), signature.encode("utf-8", "replace")):
+        raise PermissionError("jeton de service invalide")
+    if not expiry.isdigit() or int(expiry) < now or caller not in ALLOWED_CALLERS:
+        raise PermissionError("jeton de service invalide")
+    return caller
+
+
+def call_enrichment_service(ip: str, token: str, now: float) -> dict[str, str]:
+    global unauthenticated
+    try:
+        _authenticate(token, now)
+    except PermissionError:
+        unauthenticated += 1
+        raise
+    ipaddress.ip_address(ip)  # ValueError si l'IP est piégée
     return {"ip": ip, "reputation": "unknown"}
 
 
