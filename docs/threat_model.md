@@ -78,7 +78,7 @@ Format : *quoi* **DOIT** *critère mesurable*. Chaque exigence pointe vers le te
 
 **EX-01** — Un `SecurityEvent` DOIT être refusé (`DomainError`) si l'IP n'est pas une adresse valide, si le nom d'utilisateur sort de `[A-Za-z0-9_.-]{1,64}`, ou si l'action n'est pas dans la liste autorisée.
 Menace : T/S sur TB1 · Propriété : I
-Preuve : `tests/test_domain.py::test_invalid_event_cannot_exist` (+ `tests/test_log_parser.py::test_parser_ignores_hostile_or_malformed_lines`)
+Preuve : `tests/test_domain.py::test_invalid_event_cannot_exist` (+ `tests/test_log_parser.py::test_parser_rejects_hostile_or_malformed_lines`)
 
 **EX-02** — Un `SecurityEvent` DOIT être refusé si son horodatage n'a pas de fuseau horaire.
 Menace : R sur le flux F2 · Propriété : P
@@ -102,15 +102,43 @@ Preuve : `tests/test_domain.py::test_state_forbids_skipping_triage`
 
 **EX-07** — Aucun secret (clé applicative, mot de passe SMTP) NE DOIT apparaître dans `repr`, `str` ou les messages d'erreur d'un objet de configuration ; les secrets DOIVENT provenir de l'environnement, jamais du code.
 Menace : I sur TB3 · Propriété : C
-Preuve : `tests/test_config.py::test_secret_never_appears_in_repr_or_str`, `tests/test_config.py::test_secret_is_read_from_environment_not_from_code`, `tests/test_abuse.py::test_abuse_builder_rejects_short_secret_without_leaking_it`
+Preuve : `tests/test_config.py::test_secret_never_appears_in_repr_or_str`, `tests/test_config.py::test_key_is_read_from_environment_not_from_code`, `tests/test_abuse.py::test_abuse_builder_rejects_short_secret_without_leaking_it`
 
 **EX-08** — Le dépôt SQLite DOIT stocker une donnée hostile (`x'); DROP TABLE incidents;--`) comme simple texte, sans modifier le schéma ni perdre d'autres lignes.
 Menace : T sur TB2 · Propriété : I
 Preuve : `tests/test_repositories.py::test_sql_injection_is_stored_as_data_not_executed`
 
-## 6. Limites connues (honnêteté du modèle)
+## 6. Mise à jour du jour 2 : nouveaux flux (architecture hexagonale)
 
-* L'authenticité de la **source** des journaux (menace S sur F1 par un agent compromis) n'est
-  qu'atténuée par la validation de forme : la signature des journaux est à traiter aux jours 2 et 3.
+L'architecture hexagonale (ADR 0001) ajoute des flux et des frontières : messages signés des agents,
+utilisateurs avec rôles, pare-feu. Les frontières sont reprises dans le C4 de contexte
+(`docs/c4/context.md`) et le parcours (`docs/parcours.md`).
+
+| ID | Nouveau flux | Menace (STRIDE) | Parade | Preuve |
+| --- | --- | --- | --- | --- |
+| M-J2-01 | Agent → `parse_agent_message` | S : signature forgée | HMAC-SHA256 + `hmac.compare_digest` | `tests/test_adapters.py::test_abuse_forged_signature_rejected` |
+| M-J2-02 | Agent → `parse_agent_message` | T : champ modifié après signature | signature sur le corps exact du message | `tests/test_inbound_malicious.py::test_tampered_field_after_signing_rejected` |
+| M-J2-03 | Agent → `parse_agent_message` | T : champ en trop (mass assignment) | schéma strict, ensemble de clés exact | `tests/test_adapters.py::test_abuse_extra_field_rejected` |
+| M-J2-04 | Agent → `parse_agent_message` | D : message énorme | borne de 4 Kio avant tout calcul de signature ou parsing | `tests/test_inbound_malicious.py::test_oversized_message_rejected_before_signature_check` |
+| M-J2-05 | Journal → `parse_sshd_line` | T/D : ligne piégée ou géante | longueur bornée, regex ancrée `fullmatch`, rejet compté par la façade `QueenBee` | `tests/test_adapters.py::test_malicious_lines_rejected`, `tests/test_adapters.py::test_parser_is_fast_on_adversarial_input` |
+| M-J2-06 | Application → notificateurs | D : inondation d'alertes | `RateLimitedNotifier` (fenêtre, horloge injectée), rejets comptés | `tests/test_services.py::test_abuse_rate_limiter_absorbs_alert_flood` |
+| M-J2-07 | Utilisateur → `IncidentService` / Proxy | E : lecteur qui modifie | rôle exigé avant tout accès au dépôt | `tests/test_hexagon.py::test_reader_cannot_modify_through_proxy`, `tests/test_services.py::test_abuse_viewer_cannot_close_incident` |
+| M-J2-08 | Utilisateur → `IncidentReadProxy` | I : lecture sans rôle | Procuration, refus compté | `tests/test_services.py::test_proxy_blocks_principal_without_role`, `tests/test_hexagon.py::test_denied_reads_are_counted` |
+| M-J2-09 | Application → sqlite | T : injection SQL | requêtes paramétrées | `tests/test_services.py::test_sqlite_repo_resists_injection` |
+| M-J2-10 | Application → pare-feu | T : commande piégée | IP validée avant exécution, annulation (Commande) | `tests/test_services.py::test_command_undo` |
+| M-J2-11 | Notificateur en panne | D : un abonné bloque les autres | `FanOutNotifier` isole et compte les pannes (Observateur) | `tests/test_hexagon.py::test_observer_failure_does_not_block_other_subscribers` |
+| M-J2-12 | Application → notificateurs | R : alerte envoyée sans trace | `AuditedNotifier` journalise chaque alerte | `tests/test_services.py::test_audit_decorator_logs` |
+| M-J2-13 | Flux de menaces externe → application | T : indicateur non vérifiable | couche anti-corruption `ThreatFeedTranslator` | `tests/test_inbound_malicious.py::test_threat_feed_rejects_unknown_risk_level` |
+
+Test par propriétés (Hypothesis) : `tests/test_inbound_malicious.py::test_hypothesis_signed_garbage_fields_are_rejected_or_valid`,
+`tests/test_adapters.py::test_parser_never_crashes_unexpectedly`.
+
+## 7. Limites connues et risques résiduels (honnêteté du modèle)
+
+* **Rejeu** d'un message signé valide : pas de nonce ni de fenêtre de temps sur l'horodatage (S/R sur
+  le flux agent). Risque accepté pour l'instant, à traiter au J3.
+* **Agent compromis** qui possède la clé : la signature prouve que le message vient d'un détenteur de la
+  clé, pas qu'il dit vrai. Clé unique partagée entre agents : une fuite compromet tous les agents.
 * La base SQLite n'est pas chiffrée ni protégée contre un insider qui a accès au fichier (menace T/I
-  sur A2 hors du processus) : exigence à ouvrir au J2.
+  sur A2 hors du processus) : à traiter dans l'infrastructure cible (J3).
+* Le limiteur de débit est en mémoire : son état est perdu au redémarrage (voir ADR 0001).
