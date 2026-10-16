@@ -129,4 +129,7 @@ def call_enrichment_service(ip: str, token: str, now: float) -> dict[str, str]:
 
 
 def check_token(token: str) -> bool:
-    return token == _api_key()                        # FAILLE-7 : comparaison non constante (timing)
+    # FAILLE-7 corrigée : comparaison en temps constant, sur des octets ; le jeton n'est jamais journalisé.
+    if not isinstance(token, str):
+        return False
+    return hmac.compare_digest(token.encode("utf-8", "replace"), _api_key().encode())

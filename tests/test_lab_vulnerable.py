@@ -116,7 +116,7 @@ def test_faille6_refuses_to_start_without_service_key(monkeypatch: pytest.Monkey
         vuln.issue_service_token("queenbee-app", NOW)
 
 
-def test_faille7_token_comparison_is_not_constant_time(
+def test_faille7_token_comparison_is_constant_time(
     monkeypatch: pytest.MonkeyPatch, lab_key: str
 ) -> None:
     calls: list[tuple[object, object]] = []
@@ -127,8 +127,17 @@ def test_faille7_token_comparison_is_not_constant_time(
         return real(a, b)
 
     monkeypatch.setattr(hmac, "compare_digest", spy)
-    vuln.check_token(lab_key)
-    assert calls == []  # `==` s'arrête au premier caractère différent : fuite par le temps
+    assert vuln.check_token(lab_key)
+    assert not vuln.check_token("x" + lab_key[1:])
+    # Test inversé : chaque vérification passe par compare_digest, sur des octets.
+    assert len(calls) == 2
+    assert all(isinstance(a, bytes) and isinstance(b, bytes) for a, b in calls)
+
+
+@pytest.mark.usefixtures("lab_key")
+def test_faille7_non_string_or_non_ascii_token_refused_without_crash() -> None:
+    assert not vuln.check_token(None)  # type: ignore[arg-type]
+    assert not vuln.check_token("é" * 40)
 
 
 def test_faille3_pickle_payload_is_refused_without_running_code(
