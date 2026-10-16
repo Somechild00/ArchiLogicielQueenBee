@@ -20,7 +20,7 @@
 
 | Acteur | Légitime ? | Capacité / motivation |
 |--------|-----------|-----------------------|
-| Analyste SOC | Oui | Lit et qualifie les incidents (OPEN → TRIAGED → CLOSED). |
+| Analyste SOC | Oui | Lit et qualifie les incidents (OPEN → TRIAGED → [CONTAINED] → CLOSED). |
 | Administrateur / opérateur | Oui | Déploie, configure `.env`, lance Queen Bee. |
 | Attaquant externe | Non | Fabrique des lignes de journal (nom d'utilisateur, IP) pour injecter ou noyer la détection. |
 | Insider malveillant | Non | A un accès à la base ou au dépôt ; veut effacer ses traces ou voler un secret. |

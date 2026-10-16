@@ -10,6 +10,6 @@ API -> API : taille ≤ 4 Kio ? HMAC ok ? schéma ok ?
 API -> S : ingest([SecurityEvent])
 S -> R : evaluate(events)
 R --> S : [Alert]
-S -> DB : add(Incident)
+S -> DB : save(Incident)
 S -> N : notify(alert)
 @enduml
