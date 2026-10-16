@@ -6,20 +6,31 @@ from typing import Any
 
 import pytest
 
-from queenbee.bootstrap import build_service, main
+from queenbee.bootstrap import build_app, main
 from queenbee.config import ConfigError, SettingsBuilder
+from queenbee.domain.model import Alert, IncidentStatus, Principal, Severity
 from queenbee.factories import InMemoryFactory, ProdFactory
 
-KEY = "f" * 32
+KEY = bytes(range(32))
+LINE = "2026-10-14T09:00:00+02:00 sshd: Failed password for root from 10.0.0.66"
 
 
-def test_no_global_state_two_services_are_independent(five_failures: list[Any]) -> None:
-    settings = SettingsBuilder().with_secret_key(KEY).with_rule({"kind": "brute_force"}).build()
-    first = build_service(settings, InMemoryFactory())
-    second = build_service(settings, InMemoryFactory())
+def test_no_global_state_two_apps_are_independent() -> None:
+    settings = SettingsBuilder().hmac_key(KEY).build()
+    first = build_app(settings, InMemoryFactory())
+    second = build_app(settings, InMemoryFactory())
     assert first is not second
-    assert len(first.ingest(five_failures)) == 1
-    assert len(second.ingest([])) == 0
+    assert len(first.ingest_lines([LINE] * 5)) == 1
+    assert second.ingest_lines([]) == []
+
+
+def test_full_story_detect_triage_contain_close() -> None:
+    app = build_app(SettingsBuilder().hmac_key(KEY).build(), InMemoryFactory())
+    [incident] = app.ingest_lines([LINE] * 5)
+    alice = Principal("alice", frozenset({"analyst"}))
+    for status in (IncidentStatus.TRIAGED, IncidentStatus.CONTAINED, IncidentStatus.CLOSED):
+        app.incidents.move(alice, incident.id, status)
+    assert incident.status is IncidentStatus.CLOSED
 
 
 def test_prod_factory_without_smtp_cannot_build_a_notifier() -> None:
@@ -32,10 +43,10 @@ def test_main_runs_end_to_end_without_smtp(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     log = tmp_path / "auth.log"
-    log.write_text("Failed password for root from 10.0.0.1\n" * 5, encoding="utf-8")
-    env = {"QUEENBEE_SECRET_KEY": KEY, "QUEENBEE_DB_PATH": str(tmp_path / "qb.db")}
+    log.write_text(f"{LINE}\n" * 5 + "garbage\n", encoding="utf-8")
+    env = {"QUEENBEE_AGENT_KEY": KEY.hex(), "QUEENBEE_DB": str(tmp_path / "qb.db")}
     assert main(str(log), env) == 0
-    assert "1 alerte" in capsys.readouterr().out
+    assert "1 incident(s) ouvert(s), 1 ligne(s) rejetée(s)" in capsys.readouterr().out
 
 
 def test_smtp_notifier_uses_tls_and_reveals_secret_only_to_login(
@@ -65,12 +76,13 @@ def test_smtp_notifier_uses_tls_and_reveals_secret_only_to_login(
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
     settings = (
         SettingsBuilder()
-        .with_secret_key(KEY)
-        .with_smtp("mail.local", "qb", "pw-smtp", "qb@local", "soc@local")
+        .hmac_key(KEY)
+        .smtp("mail.local", "qb", "pw-smtp", "qb@local", "soc@local")
         .build()
     )
-    from queenbee.domain.model import Alert, Severity
-
-    notifier = ProdFactory(":memory:", settings.smtp).notifier()
-    notifier.notify(Alert("brute_force", "10.0.0.1", Severity.HIGH, "msg"))
+    app = build_app(settings)  # famille production : SMTP audité et limité
+    assert app.ingest_lines([]) == []
+    ProdFactory(":memory:", settings.smtp).notifier().notify(
+        Alert("brute_force", "10.0.0.1", Severity.HIGH, "msg")
+    )
     assert calls == ["connect mail.local", "starttls", "login qb pw-smtp", "send soc@local"]

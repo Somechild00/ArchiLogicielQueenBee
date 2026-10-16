@@ -7,6 +7,7 @@ import importlib.util
 import smtplib
 import types
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -14,7 +15,7 @@ LEGACY = Path(__file__).resolve().parent.parent / "legacy" / "log_watcher.py"
 
 
 class FakeSMTP:
-    sent: list[str] = []
+    sent: ClassVar[list[str]] = []
 
     def __init__(self, host: str) -> None:
         self.host = host

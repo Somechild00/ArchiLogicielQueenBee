@@ -8,7 +8,7 @@ from queenbee.config import ConfigError, SettingsBuilder
 from queenbee.domain.model import Alert, DomainError, Severity
 from queenbee.domain.rules import MAX_THRESHOLD, build_rule
 
-GOOD_KEY = "k" * 32
+GOOD_KEY = b"k" * 32
 
 
 @pytest.mark.parametrize("threshold", [0, -1, 5.0, "5", None, MAX_THRESHOLD + 1])
@@ -42,13 +42,18 @@ def test_abuse_alert_message_cannot_be_unbounded() -> None:
         Alert("r", "10.0.0.1", Severity.LOW, "x" * 10_000)
 
 
+def test_abuse_alert_with_unknown_severity_is_rejected() -> None:
+    with pytest.raises(DomainError):
+        Alert("r", "10.0.0.1", 99, "x")  # type: ignore[arg-type]
+
+
 def test_abuse_builder_rejects_short_secret_without_leaking_it() -> None:
     with pytest.raises(ConfigError) as info:
-        SettingsBuilder().with_secret_key("tropcourt").build()
+        SettingsBuilder().hmac_key(b"tropcourt").build()
     assert "tropcourt" not in str(info.value)
 
 
 def test_abuse_builder_rejects_unknown_rule() -> None:
-    builder = SettingsBuilder().with_secret_key(GOOD_KEY).with_rule({"kind": "os.system"})
+    builder = SettingsBuilder().hmac_key(GOOD_KEY).rule({"kind": "os.system"})
     with pytest.raises(DomainError):
         builder.build()
